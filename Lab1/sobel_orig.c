@@ -104,8 +104,8 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 	/* This is the main computation. Get the starting time. */
 	clock_gettime(CLOCK_MONOTONIC_RAW, &tv1);
 	/* For each pixel of the output image */
-	for (j=1; j<SIZE-1; j+=1) {
-		for (i=1; i<SIZE-1; i+=1 ) {
+	for (i=1; i<SIZE-1; i+=1) {
+		for (j=1; j<SIZE-1; j+=1 ) {
 			/* Apply the sobel filter and calculate the magnitude *
 			 * of the derivative.								  */
 			p = pow(convolution2D(i, j, input, horiz_operator), 2) +
@@ -138,7 +138,6 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 
 	printf ("%10g\n",(double) (tv2.tv_nsec - tv1.tv_nsec) / 1000000000.0 +
 			(double) (tv2.tv_sec - tv1.tv_sec));
-
 
 	/* Write the output file */
 	fwrite(output, sizeof(unsigned char), SIZE*SIZE, f_out);
