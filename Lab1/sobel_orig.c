@@ -41,8 +41,8 @@ int convolution2D(int posy, int posx, const unsigned char *input, char operator[
 	int i, j, res;
 
 	res = 0;
-	for (j = -1; j <= 1; j++) {
-		for (i = -1; i <= 1; i++) {
+	for (i = -1; i <= 1; i++) {
+		for (j = -1; j <= 1; j++) {
 			res += input[(posy + i)*SIZE + posx + j] * operator[i+1][j+1];
 		}
 	}
