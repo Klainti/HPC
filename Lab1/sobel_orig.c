@@ -12,14 +12,6 @@
 #define OUTPUT_FILE	"output_sobel.grey"
 #define GOLDEN_FILE	"golden.grey"
 
-/* The horizontal and vertical operators to be used in the sobel filter */
-char horiz_operator[3][3] = {{-1, 0, 1},
-                             {-2, 0, 2},
-                             {-1, 0, 1}};
-char vert_operator[3][3] = {{1, 2, 1},
-                            {0, 0, 0},
-                            {-1, -2, -1}};
-
 double sobel(unsigned char *input, unsigned char *output, unsigned char *golden);
 
 /* The arrays holding the input image, the output image and the output used *
@@ -36,9 +28,9 @@ unsigned char input[SIZE*SIZE], output[SIZE*SIZE], golden[SIZE*SIZE];
 double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 {
 	double PSNR = 0, t;
-	int i, j, tmp1, tmp2, tmp3,tmp;
+	int k = 0, i, j, tmp1, tmp2, tmp3,tmp;
 	unsigned int p;
-	int res, res_horiz, res_vert;
+	int res_horiz, res_vert;
 	struct timespec  tv1, tv2;
 	FILE *f_in, *f_out, *f_golden;
 
@@ -83,59 +75,43 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 	/* This is the main computation. Get the starting time. */
 	clock_gettime(CLOCK_MONOTONIC_RAW, &tv1);
 	/* For each pixel of the output image */
-	for (i=1; i<SIZE-1; i+=1) {
-        tmp1 = i * SIZE;
-        tmp2 = tmp1 - SIZE; // (i-1)*SIZE
-        tmp3 = tmp1 + SIZE; // (i+1)*SIZE
-		for (j=1; j<SIZE-1; j+=1 ) {
+	for (i=1; i<SIZE-1; i=i+1) {
+        k = k + SIZE; // i*SIZE
+        tmp1 = k - SIZE; // (i-1)*SIZE
+        tmp2 = k + SIZE; // (i+1)*SIZE
+		for (j=1; j<SIZE-1; j=j+1 ) {
             res_horiz = 0;
             res_vert = 0;
 			/* Apply the sobel filter and calculate the magnitude *
 			 * of the derivative.								  */
+			tmp = tmp1 + j;
+            res_horiz = res_horiz - input[tmp - 1] + input[tmp + 1];
+            res_vert = res_vert + input[tmp - 1] + (input[tmp] << 1) + input[tmp + 1];
+
+            tmp = k + j;
+            res_horiz = res_horiz -  (input[tmp -1] << 1) + (input[tmp + 1] << 1);
+
             tmp = tmp2 + j;
-            res_horiz += input[tmp - 1] * horiz_operator[0][0];
-            res_horiz += input[tmp] * horiz_operator[0][1];
-            res_horiz += input[tmp + 1] * horiz_operator[0][2];
+            res_horiz = res_horiz - input[tmp - 1] + input[tmp + 1];
+            res_vert = res_vert - input[tmp - 1] - (input[tmp] << 1) - input[tmp + 1];
 
-            res_vert += input[tmp - 1] * vert_operator[0][0];
-            res_vert += input[tmp] * vert_operator[0][1];
-            res_vert += input[tmp + 1] * vert_operator[0][2];
-
-            tmp = tmp1 + j;
-            res_horiz += input[tmp -1] * horiz_operator[1][0];
-            res_horiz += input[tmp] * horiz_operator[1][1];
-            res_horiz += input[tmp + 1] * horiz_operator[1][2];
-
-            res_vert += input[tmp -1] * vert_operator[1][0];
-            res_vert += input[tmp] * vert_operator[1][1];
-            res_vert += input[tmp + 1] * vert_operator[1][2];
-
-            tmp = tmp3 + j;
-            res_horiz += input[tmp - 1] * horiz_operator[2][0];
-            res_horiz += input[tmp] * horiz_operator[2][1];
-            res_horiz += input[tmp + 1] * horiz_operator[2][2];
-
-            res_vert += input[tmp - 1] * vert_operator[2][0];
-            res_vert += input[tmp] * vert_operator[2][1];
-            res_vert += input[tmp + 1] * vert_operator[2][2];
-
-			p = pow(res_horiz,2) + pow(res_vert, 2);
-			res = (int)sqrt(p);
-			/* If the resulting value is greater than 255, clip it *
-			 * to 255.											   */
-			if (res > 255)
-				output[i*SIZE + j] = 255;
+			p = res_horiz*res_horiz + res_vert*res_vert;
+            /* sqrt(p)>255 then p^2 > (255)^2 then p > 65025, clip it to 255! */
+			if (p > 65025)
+				output[k + j] = 255;
 			else
-				output[i*SIZE + j] = (unsigned char)res;
+				output[k + j] = (unsigned char)((int)sqrt(p));
 		}
 	}
 
 	/* Now run through the output and the golden output to calculate *
 	 * the MSE and then the PSNR.									 */
-	for (i=1; i<SIZE-1; i++) {
-		for ( j=1; j<SIZE-1; j++ ) {
-			t = pow((output[i*SIZE+j] - golden[i*SIZE+j]),2);
-			PSNR += t;
+    k = 0;
+	for (i=1; i<SIZE-1; i=i+1) {
+        k = k + SIZE; // i*SIZE
+		for ( j=1; j<SIZE-1; j=j+1 ) {
+			t = output[k+j] - golden[k+j];
+			PSNR = PSNR + t*t;
 		}
 	}
 
