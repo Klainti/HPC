@@ -30,6 +30,7 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 	double PSNR = 0, t;
 	int k = 0, i, j, tmp1, tmp2, tmp3,tmp;
 	unsigned int p;
+	unsigned char look_up_table[65026];
 	int res_horiz, res_vert;
 	struct timespec  tv1, tv2;
 	FILE *f_in, *f_out, *f_golden;
@@ -44,6 +45,10 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 		output[i*SIZE + SIZE - 1] = 0;
 	}
 
+	// init look_up_table for sqrts!
+	for (i=0; i<65026; i++) {
+		look_up_table[i] = (unsigned char)((int)sqrt(i));
+	}
 	/* Open the input, output, golden files, read the input and golden    *
      * and store them to the corresponding arrays.						  */
 	f_in = fopen(INPUT_FILE, "r");
@@ -100,10 +105,9 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 			if (p > 65025)
 				output[k + j] = 255;
 			else
-				output[k + j] = (unsigned char)((int)sqrt(p));
-		}
+				output[k + j] = look_up_table[p];
+			}
 	}
-
 	/* Now run through the output and the golden output to calculate *
 	 * the MSE and then the PSNR.									 */
     k = 0;
