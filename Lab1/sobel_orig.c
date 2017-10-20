@@ -12,26 +12,23 @@
 #define OUTPUT_FILE	"output_sobel.grey"
 #define GOLDEN_FILE	"golden.grey"
 
-double sobel(unsigned char *input, unsigned char *output, unsigned char *golden);
-
-/* The arrays holding the input image, the output image and the output used *
- * as golden standard. The luminosity (intensity) of each pixel in the      *
- * grayscale image is represented by a value between 0 and 255 (an unsigned *
- * character). The arrays (and the files) contain these values in row-major *
- * order (element after element within each row and row after row. 			*/
-unsigned char input[SIZE*SIZE], output[SIZE*SIZE], golden[SIZE*SIZE];
 
 /* The main computational function of the program. The input, output and *
  * golden arguments are pointers to the arrays used to store the input   *
  * image, the output produced by the algorithm and the output used as    *
  * golden standard for the comparisons.									 */
-double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
+double sobel()
 {
-	double PSNR = 0, t;
-	int k = 0, i, j, tmp1, tmp2, tmp3,tmp;
-	unsigned int p;
+	/* The arrays holding the input image, the output image and the output used *
+	 * as golden standard. The luminosity (intensity) of each pixel in the      *
+	 * grayscale image is represented by a value between 0 and 255 (an unsigned *
+	 * character). The arrays (and the files) contain these values in row-major *
+	 * order (element after element within each row and row after row. 			*/
+	unsigned char input[SIZE*SIZE], output[SIZE*SIZE], golden[SIZE*SIZE];
+	register double PSNR = 0, t;
+	register unsigned int k = 0, i, j, tmp1, tmp2, tmp3,tmp,p;
+	register int res_horiz, res_vert;
 	unsigned char look_up_table[65026];
-	int res_horiz, res_vert;
 	struct timespec  tv1, tv2;
 	FILE *f_in, *f_out, *f_golden;
 
@@ -132,7 +129,7 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 int main(int argc, char* argv[])
 {
 	double PSNR;
-	PSNR = sobel(input, output, golden);
+	PSNR = sobel();
     #ifdef debug
     printf("PSNR of original Sobel and computed Sobel image: %g\n", PSNR);
 	printf("A visualization of the sobel filter can be found at " OUTPUT_FILE ", or you can run 'make image' to get the jpg\n");
