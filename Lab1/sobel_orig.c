@@ -107,16 +107,8 @@ double sobel(unsigned char *input, unsigned char *output, unsigned char *golden)
 			else
 				output[k + j] = look_up_table[p];
 			}
-	}
-	/* Now run through the output and the golden output to calculate *
-	 * the MSE and then the PSNR.									 */
-    k = 0;
-	for (i=1; i<SIZE-1; i=i+1) {
-        k = k + SIZE; // i*SIZE
-		for ( j=1; j<SIZE-1; j=j+1 ) {
 			t = output[k+j] - golden[k+j];
 			PSNR = PSNR + t*t;
-		}
 	}
 
 	PSNR /= (double)(SIZE*SIZE);
