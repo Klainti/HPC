@@ -24,7 +24,6 @@
 #include <omp.h>
 #include "kmeans.h"
 
-
 /*----< euclid_dist_2() >----------------------------------------------------*/
 /* square of Euclid distance between two multi-dimensional points            */
 __inline static
@@ -99,12 +98,12 @@ int seq_kmeans(float **objects,      /* in: [numObjs][numCoords] */
 
     #pragma omp parallel
     {
-        #pragma omp for nowait
+        #pragma omp for nowait schedule(static)
         /* initialize membership[] */
         for (i=0; i<numObjs; i++) membership[i] = -1;
 
         /*The address of each cluster differs by i*numCoords from 1st cluster*/
-        #pragma omp for nowait
+        #pragma omp for nowait schedule(static)
         for (i=1; i<numClusters; i++){
             newClusters[i] = newClusters[0] + i*numCoords;
         }
@@ -112,11 +111,8 @@ int seq_kmeans(float **objects,      /* in: [numObjs][numCoords] */
 
 
     do {
-        //#pragma omp parallel private (index, j)
-        //{
-            //printf("thread: %d\n", omp_get_thread_num());
             delta = 0.0;
-            #pragma omp parallel for private (index, j) reduction(+:delta)
+            #pragma omp parallel for private (index, j) reduction(+:delta) schedule(dynamic, 1)
             for (i=0; i<numObjs; i++) {
                 /* find the array index of nestest cluster center */
                 index = find_nearest_cluster(numClusters, numCoords, objects[i],
@@ -134,12 +130,10 @@ int seq_kmeans(float **objects,      /* in: [numObjs][numCoords] */
                 for (j=0; j<numCoords; j++) {
                     #pragma omp atomic
                     newClusters[index][j] += objects[i][j];
-                    //#pragma omp atomic
-                    //counter += objects[i][j];
                 }
             }
 
-            //#pragma omp for nowait
+
             /* average the sum and replace old cluster center with newClusters */
             for (i=0; i<numClusters; i++) {
                 for (j=0; j<numCoords; j++) {
@@ -150,14 +144,7 @@ int seq_kmeans(float **objects,      /* in: [numObjs][numCoords] */
                 newClusterSize[i] = 0;   /* set back to 0 */
             }
 
-            //#pragma omp master
-            //{
             delta /= numObjs;
-                //printf("counter %lf\n", counter);
-                //counter = 0;
-            //}
-            //#pragma omp flush
-        //}
     } while (delta > threshold && loop++ < 500);
 
     free(newClusters[0]);

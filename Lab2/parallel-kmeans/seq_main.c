@@ -102,7 +102,7 @@ int main(int argc, char **argv) {
     if (is_output_timing) io_timing = wtime();
 
     /* read data points from file ------------------------------------------*/
-    printf("reading data points from file %s\n",filename);
+    //printf("reading data points from file %s\n",filename);
 
     objects = file_read(isBinaryFile, filename, &numObjs, &numCoords);
     if (objects == NULL) exit(1);
@@ -126,15 +126,15 @@ int main(int argc, char **argv) {
     /* read the first numClusters elements from file center_filename as the
      * initial cluster centers*/
     if (center_filename != filename) {
-        printf("reading initial %d centers from file %s\n", numClusters,
-               center_filename);
+        //printf("reading initial %d centers from file %s\n", numClusters,
+               //center_filename);
         /* read the first numClusters data points from file */
         read_n_objects(isBinaryFile, center_filename, numClusters,
                        numCoords, clusters);
     }
     else {
-        printf("selecting the first %d elements as initial centers\n",
-               numClusters);
+        //printf("selecting the first %d elements as initial centers\n",
+               //numClusters);
         /* copy the first numClusters elements in feature[] */
         for (i=0; i<numClusters; i++)
             for (j=0; j<numCoords; j++)
@@ -190,18 +190,18 @@ int main(int argc, char **argv) {
     /*---- output performance numbers ---------------------------------------*/
     if (is_output_timing) {
         io_timing += wtime() - timing;
-        printf("\nPerforming **** Regular Kmeans (sequential version) ****\n");
+        //printf("\nPerforming **** Regular Kmeans (sequential version) ****\n");
 
-        printf("Input file:     %s\n", filename);
-        printf("numObjs       = %d\n", numObjs);
-        printf("numCoords     = %d\n", numCoords);
-        printf("numClusters   = %d\n", numClusters);
-        printf("threshold     = %.4f\n", threshold);
+        //printf("Input file:     %s\n", filename);
+        //printf("numObjs       = %d\n", numObjs);
+        //printf("numCoords     = %d\n", numCoords);
+        //printf("numClusters   = %d\n", numClusters);
+        //printf("threshold     = %.4f\n", threshold);
 
-        printf("I/O time           = %10.4f sec\n", io_timing);
-        printf("Computation timing = %10.4f sec\n", clustering_timing);
+        //printf("I/O time           = %10.4f sec\n", io_timing);
+        //printf("Computation timing = %10.4f sec\n", clustering_timing);
+        printf("%10.4f\n", clustering_timing);
     }
 
     return(0);
 }
-
