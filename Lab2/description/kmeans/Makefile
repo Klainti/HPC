@@ -14,13 +14,13 @@
 
 .KEEP_STATE:
 
-all: seq 
+all: seq
 
 
-CC             = gcc
+CC             = icc
 
 INCFLAGS    = -I.
-OPTFLAGS    = -O4 -DNDEBUG
+OPTFLAGS    = -fast -DNDEBUG
 LDFLAGS     = $(OPTFLAGS)
 
 
@@ -83,4 +83,3 @@ check: all
 	# sequential K-means ---------------------------------------------------
 	./seq_main -q -b -n 4 -i Image_data/color17695.bin
 	./seq_main -q    -n 4 -i Image_data/color100.txt
-
