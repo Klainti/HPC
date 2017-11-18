@@ -81,4 +81,4 @@ clean:
 
 check: all
 	# parallel K-means ---------------------------------------------------
-	./seq_main -q -o -b -n 1000 -i Image_data/color17695.bin >> metrices.txt
+	./seq_main -q -o -b -n 1000 -i Image_data/texture17695.bin

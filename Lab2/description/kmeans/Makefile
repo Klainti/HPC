@@ -81,5 +81,4 @@ clean:
 
 check: all
 	# sequential K-means ---------------------------------------------------
-	./seq_main -q -b -n 4 -i Image_data/color17695.bin
-	./seq_main -q    -n 4 -i Image_data/color100.txt
+	./seq_main -q -o -b -n 1000 -i Image_data/texture17695.bin

@@ -77,7 +77,7 @@ int seq_kmeans(float **objects,      /* in: [numObjs][numCoords] */
                float **clusters)     /* out: [numClusters][numCoords] */
 
 {
-    float counter = 0;
+
     int      i, j, index, loop=0;
     int     *newClusterSize; /* [numClusters]: no. objects assigned in each
                                 new cluster */
@@ -93,8 +93,6 @@ int seq_kmeans(float **objects,      /* in: [numObjs][numCoords] */
     newClusters[0] = (float*)  calloc(numClusters * numCoords, sizeof(float));
     assert(newClusters[0] != NULL);
 
-    /*enables the dynamic adjustment of the number of thread*/
-    //omp_set_dynamic(0);
 
     #pragma omp parallel
     {
