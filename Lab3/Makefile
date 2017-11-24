@@ -4,13 +4,14 @@
 #  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 NVCC = nvcc
-OPTFLAGS = -g -G -O4
-DEBUGFLAFS = -DDEBUG -DDEBUG_COLOR
+OPTFLAGS = -g -fmad=false -O4
+DEBUGFLAFS = -Xcompiler -DDEBUG -Xcompiler -DDEBUG_COLOR
+MEMFLAGS = -Xcompiler -rdynamic -lineinfo
 
 H_FILES = debug.h
 
 Convolution2D: Convolution2D.cu
-	$(NVCC) $(OPTFLAGS) $(DEBUGFLAFS) -o Convolution2D Convolution2D.cu
+	$(NVCC) $(OPTFLAGS) $(MEMFLAGS)  $(DEBUGFLAFS) -o Convolution2D Convolution2D.cu
 
 clean:
 	rm -rf *.o
