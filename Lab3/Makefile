@@ -4,14 +4,20 @@
 #  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 NVCC = nvcc
-OPTFLAGS = -g -fmad=false -O4
-DEBUGFLAFS = -Xcompiler -DDEBUG -Xcompiler -DDEBUG_COLOR
-MEMFLAGS = -Xcompiler -rdynamic -lineinfo
+OPTFLAGS = -g -O4
 
-H_FILES = debug.h
+# For debugging purpose, check debug.h for more details!
+DEBUGFLAFS = -Xcompiler -DDEBUG -Xcompiler -DDEBUG_COLOR
+
+# Comment this if you want to use FLOATS. Default double precision!
+DOUBLE_OR_FLOAT = -Xcompiler -DUSE_DOUBLES
+
+# Checks the accuracy of the convolution between CPU and GPU.
+# Comment this if you want to calculate the max residual between them.
+CHECK_ACCURACY = -Xcompiler -DCHECK_ACCURACY
 
 Convolution2D: Convolution2D.cu
-	$(NVCC) $(OPTFLAGS) $(MEMFLAGS)  $(DEBUGFLAFS) -o Convolution2D Convolution2D.cu
+	$(NVCC) $(OPTFLAGS) $(DOUBLE_OR_FLOAT) $(CHECK_ACCURACY) $(DEBUGFLAFS) -o Convolution2D Convolution2D.cu
 
 clean:
 	rm -rf *.o

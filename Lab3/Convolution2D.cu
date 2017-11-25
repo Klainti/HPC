@@ -5,8 +5,10 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #include "debug.h"
+#include "gputimer.h"
 
 unsigned int filter_radius;
 
@@ -14,19 +16,24 @@ unsigned int filter_radius;
 #define ABS(val)  	((val)<0.0 ? (-(val)) : (val))
 #define accuracy  	0.00005
 
-#define NUM_BLOCKS 1
+// use doubles or float ?
+#ifdef USE_DOUBLES
+typedef double user_data_t;
+#else
+typedef float user_data_t;
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////
 // Reference row convolution filter
 ////////////////////////////////////////////////////////////////////////////////
-void convolutionRowCPU(float *h_Dst, float *h_Src, float *h_Filter,
+void convolutionRowCPU(user_data_t *h_Dst, user_data_t *h_Src, user_data_t *h_Filter,
                        int imageW, int imageH, int filterR) {
 
   int x, y, k;
 
   for (y = 0; y < imageH; y++) {
     for (x = 0; x < imageW; x++) {
-      float sum = 0;
+      user_data_t sum = 0;
 
       for (k = -filterR; k <= filterR; k++) {
         int d = x + k;
@@ -41,10 +48,10 @@ void convolutionRowCPU(float *h_Dst, float *h_Src, float *h_Filter,
   }
 }
 
-__global__ void convolutionRowGPU(float *d_Dst, float *d_Src, float *d_Filter,
+__global__ void convolutionRowGPU(user_data_t *d_Dst, user_data_t *d_Src, user_data_t *d_Filter,
                         int imageW, int imageH, int filterR) {
     int x,y,k;
-    float sum=0.0;
+    user_data_t sum=0.0;
 
     x = threadIdx.x + blockDim.x * blockIdx.x;
     y = threadIdx.y + blockDim.y * blockIdx.y;
@@ -63,14 +70,14 @@ __global__ void convolutionRowGPU(float *d_Dst, float *d_Src, float *d_Filter,
 ////////////////////////////////////////////////////////////////////////////////
 // Reference column convolution filter
 ////////////////////////////////////////////////////////////////////////////////
-void convolutionColumnCPU(float *h_Dst, float *h_Src, float *h_Filter,
+void convolutionColumnCPU(user_data_t *h_Dst, user_data_t *h_Src, user_data_t *h_Filter,
     			   int imageW, int imageH, int filterR) {
 
   int x, y, k;
 
   for (y = 0; y < imageH; y++) {
     for (x = 0; x < imageW; x++) {
-      float sum = 0;
+      user_data_t sum = 0;
 
       for (k = -filterR; k <= filterR; k++) {
         int d = y + k;
@@ -85,10 +92,10 @@ void convolutionColumnCPU(float *h_Dst, float *h_Src, float *h_Filter,
   }
 }
 
-__global__ void convolutionColumnGPU(float *d_Dst, float *d_Src, float *d_Filter,
+__global__ void convolutionColumnGPU(user_data_t *d_Dst, user_data_t *d_Src, user_data_t *d_Filter,
                     int imageW, int imageH, int filterR) {
     int x, y, k;
-    float sum = 0.0;
+    user_data_t sum = 0.0;
 
     x = threadIdx.x + blockDim.x * blockIdx.x;
     y = threadIdx.y + blockDim.y * blockIdx.y;
@@ -109,26 +116,38 @@ __global__ void convolutionColumnGPU(float *d_Dst, float *d_Src, float *d_Filter
 ////////////////////////////////////////////////////////////////////////////////
 int main(int argc, char **argv) {
 
-    float
+    user_data_t
     *h_Filter,
     *h_Input,
     *h_Buffer,
     *h_OutputCPU;
 
-    float
+    user_data_t
     *d_Filter,
     *d_Input,
     *d_Buffer,
     *d_OutputGPU;
 
-    float
+    user_data_t
     *GPU_result;
 
     int imageW;
     int imageH;
+    int num_blocks;
     unsigned int i;
-    float residual;
-    cudaError_t error;
+    user_data_t residual;
+
+    cudaError_t error; //check if a function fails!
+
+    //elapsed time of GPU
+    GpuTimer myTimer;
+    myTimer.CreateTimer();
+
+    //elapsed time of GPU
+    struct timespec  tv1, tv2;
+
+    debug_e("Entet number of blocks : ");
+    scanf("%d", &num_blocks);
 
 	printf("Enter filter radius : ");
 	scanf("%d", &filter_radius);
@@ -144,31 +163,31 @@ int main(int argc, char **argv) {
     printf("Image Width x Height = %i x %i\n\n", imageW, imageH);
     printf("Allocating and initializing host arrays...\n");
     // Tha htan kalh idea na elegxete kai to apotelesma twn malloc...
-    h_Filter    = (float *)malloc(FILTER_LENGTH * sizeof(float));
-    h_Input     = (float *)malloc(imageW * imageH * sizeof(float));
-    h_Buffer    = (float *)malloc(imageW * imageH * sizeof(float));
-    h_OutputCPU = (float *)malloc(imageW * imageH * sizeof(float));
-    GPU_result = (float *)malloc(imageW * imageH * sizeof(float));
+    h_Filter    = (user_data_t *)malloc(FILTER_LENGTH * sizeof(user_data_t));
+    h_Input     = (user_data_t *)malloc(imageW * imageH * sizeof(user_data_t));
+    h_Buffer    = (user_data_t *)malloc(imageW * imageH * sizeof(user_data_t));
+    h_OutputCPU = (user_data_t *)malloc(imageW * imageH * sizeof(user_data_t));
+    GPU_result = (user_data_t *)malloc(imageW * imageH * sizeof(user_data_t));
 
-    error = cudaMalloc((void**) &d_Filter, FILTER_LENGTH*sizeof(float));
+    error = cudaMalloc((void**) &d_Filter, FILTER_LENGTH*sizeof(user_data_t));
     if (error != cudaSuccess){
         debug_e("cudaMalloc failed!");
         exit(-1);
     }
 
-    error = cudaMalloc((void**) &d_Input, imageW * imageH * sizeof(float));
+    error = cudaMalloc((void**) &d_Input, imageW * imageH * sizeof(user_data_t));
     if (error != cudaSuccess){
         debug_e("cudaMalloc failed! Error: %s\n", cudaGetErrorString(error));
         exit(-1);
     }
 
-    error = cudaMalloc((void**) &d_Buffer, imageW * imageH * sizeof(float));
+    error = cudaMalloc((void**) &d_Buffer, imageW * imageH * sizeof(user_data_t));
     if (error != cudaSuccess){
         debug_e("cudaMalloc failed! Error: %s\n", cudaGetErrorString(error));
         exit(-1);
     }
 
-    error = cudaMalloc((void**) &d_OutputGPU, imageW * imageH * sizeof(float));
+    error = cudaMalloc((void**) &d_OutputGPU, imageW * imageH * sizeof(user_data_t));
     if (error != cudaSuccess){
         debug_e("cudaMalloc failed! Error: %s\n", cudaGetErrorString(error));
         exit(-1);
@@ -180,39 +199,56 @@ int main(int argc, char **argv) {
     srand(200);
 
     for (i = 0; i < FILTER_LENGTH; i++) {
-        h_Filter[i] = (float)(rand() % 16);
+        h_Filter[i] = (user_data_t)(rand() % 16);
     }
 
     for (i = 0; i < imageW * imageH; i++) {
-        h_Input[i] = (float)rand() / ((float)RAND_MAX / 255) + (float)rand() / (float)RAND_MAX;
+        h_Input[i] = (user_data_t)rand() / ((user_data_t)RAND_MAX / 255) + (user_data_t)rand() / (user_data_t)RAND_MAX;
     }
 
+    /* ------------------------------------------- CPU computation -----------------------------------------------------------------*/
+
+    // To parakatw einai to kommati pou ekteleitai sthn CPU kai me vash auto prepei na ginei h sugrish me thn GPU.
+    printf("CPU computation: ");
+
+    /* This is the main computation. Get the starting time. */
+    clock_gettime(CLOCK_MONOTONIC_RAW, &tv1);
+
+    convolutionRowCPU(h_Buffer, h_Input, h_Filter, imageW, imageH, filter_radius); // convolution kata grammes
+    convolutionColumnCPU(h_OutputCPU, h_Buffer, h_Filter, imageW, imageH, filter_radius); // convolution kata sthles
+
+    /* This is the end of the main computation. */
+    clock_gettime(CLOCK_MONOTONIC_RAW, &tv2);
+
+    printf ("%10g\n",(double) (tv2.tv_nsec - tv1.tv_nsec) / 1000000000.0 +
+    			(double) (tv2.tv_sec - tv1.tv_sec));
+
+
+    /* ------------------------------------------- GPU computation -----------------------------------------------------------------*/
+    printf("GPU computation: ");
+    //Dimensions of grib and blocks!
+    dim3 grid, block;
+    block.x = imageW/num_blocks;
+    block.y = imageH/num_blocks;
+    grid.x = num_blocks;
+    grid.y = num_blocks;
+
+    myTimer.Start(); // start the timer
+
     // copy host memory to device
-    error = cudaMemcpy(d_Filter, h_Filter, FILTER_LENGTH * sizeof(float), cudaMemcpyHostToDevice);
+    error = cudaMemcpy(d_Filter, h_Filter, FILTER_LENGTH * sizeof(user_data_t), cudaMemcpyHostToDevice);
     if (error != cudaSuccess){
         debug_e("cudaMemcpy failed! Error: %s\n", cudaGetErrorString(error));
         exit(-1);
     }
 
-    error = cudaMemcpy(d_Input, h_Input, imageW * imageH * sizeof(float), cudaMemcpyHostToDevice);
+    error = cudaMemcpy(d_Input, h_Input, imageW * imageH * sizeof(user_data_t), cudaMemcpyHostToDevice);
     if (error != cudaSuccess){
         debug_e("cudaMalloc failed! Error: %s\n", cudaGetErrorString(error));
         exit(-1);
     }
 
-    // To parakatw einai to kommati pou ekteleitai sthn CPU kai me vash auto prepei na ginei h sugrish me thn GPU.
-    printf("CPU computation...\n");
-
-    convolutionRowCPU(h_Buffer, h_Input, h_Filter, imageW, imageH, filter_radius); // convolution kata grammes
-    convolutionColumnCPU(h_OutputCPU, h_Buffer, h_Filter, imageW, imageH, filter_radius); // convolution kata sthles
-
-    //kernel invocation
-    dim3 grid, block;
-    block.x = imageW/NUM_BLOCKS;
-    block.y = imageH/NUM_BLOCKS;
-    grid.x = NUM_BLOCKS;
-    grid.y = NUM_BLOCKS;
-
+    // kernel for row convolution
     convolutionRowGPU<<<grid, block>>>(d_Buffer, d_Input, d_Filter, imageW, imageH, filter_radius); // convolution kata grammes
 
     // wait for convolutionRowGPU to finish!
@@ -222,14 +258,19 @@ int main(int argc, char **argv) {
         exit(-1);
     }
 
+    // kernel for column convolution!
     convolutionColumnGPU<<<grid, block>>>(d_OutputGPU, d_Buffer, d_Filter, imageW, imageH, filter_radius); // convolution kata sthles
 
     //Done with computation, return result to CPU
-    error = cudaMemcpy(GPU_result, d_OutputGPU, imageW*imageH*sizeof(float), cudaMemcpyDeviceToHost);
+    error = cudaMemcpy(GPU_result, d_OutputGPU, imageW*imageH*sizeof(user_data_t), cudaMemcpyDeviceToHost);
     if (error != cudaSuccess) {
         debug_e("cudaMemcpy failed! Error: %s\n", cudaGetErrorString(error));
         exit(-1);
     }
+
+    myTimer.Stop(); // stop the timer
+    printf("%lf\n", myTimer.Elapsed());
+    myTimer.DestroyTimer();
 
     // ask CUDA for the last error to occur (if one exists)
     error = cudaGetLastError();
@@ -247,15 +288,26 @@ int main(int argc, char **argv) {
 
     // Kanete h sugrish anamesa se GPU kai CPU kai an estw kai kapoio apotelesma xeperna thn akriveia
     // pou exoume orisei, tote exoume sfalma kai mporoume endexomenws na termatisoume to programma mas
-    for (i=0; i<imageW*imageH; i++) {
-        residual = ABS(GPU_result[i] - h_OutputCPU[i]);
+    #ifdef CHECK_ACCURACY
+        for (i=0; i<imageW*imageH; i++) {
+            residual = ABS(GPU_result[i] - h_OutputCPU[i]);
 
-        if (residual>accuracy){
-            debug_w("Accuracy: %lf", residual);
-            exit(-1);
+            if (residual>accuracy){
+                debug_w("Accuracy: %lf", residual);
+                exit(-1);
+            }
         }
-    }
+    #else //find the max residual!
+        user_data_t max_residual = -1.0;
+        for (i=0; i<imageW*imageH; i++) {
+            residual = ABS(GPU_result[i] - h_OutputCPU[i]);
 
+            if (residual>max_residual){
+                max_residual = residual;
+            }
+        }
+        printf("Max residual: %lf\n", max_residual);
+    #endif
 
     // free all the allocated memory
     free(h_OutputCPU);
@@ -288,8 +340,7 @@ int main(int argc, char **argv) {
     }
 
     // Do a device reset just in case... Bgalte to sxolio otan ylopoihsete CUDA
-    // cudaDeviceReset();
-
+    //cudaDeviceReset();
 
     return 0;
 }
