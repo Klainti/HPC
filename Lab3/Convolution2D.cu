@@ -16,6 +16,8 @@ unsigned int filter_radius;
 #define ABS(val)  	((val)<0.0 ? (-(val)) : (val))
 #define accuracy  	0.00005
 
+#define NUM_BLOCKS 1
+
 // use doubles or float ?
 #ifdef USE_DOUBLES
 typedef double user_data_t;
@@ -30,19 +32,16 @@ void convolutionRowCPU(user_data_t *h_Dst, user_data_t *h_Src, user_data_t *h_Fi
                        int imageW, int imageH, int filterR) {
 
   int x, y, k;
+  int newDim = imageW+filterR*2;
 
-  for (y = 0; y < imageH; y++) {
-    for (x = 0; x < imageW; x++) {
+  for (y = filterR; y < imageH+filterR; y++) {
+    for (x = filterR; x < imageW+filterR; x++) {
       user_data_t sum = 0;
 
       for (k = -filterR; k <= filterR; k++) {
         int d = x + k;
-
-        if (d >= 0 && d < imageW) {
-          sum += h_Src[y * imageW + d] * h_Filter[filterR - k];
-        }
-
-        h_Dst[y * imageW + x] = sum;
+        sum += h_Src[y * newDim + d] * h_Filter[filterR - k];
+        h_Dst[y * newDim + x] = sum;
       }
     }
   }
@@ -51,19 +50,16 @@ void convolutionRowCPU(user_data_t *h_Dst, user_data_t *h_Src, user_data_t *h_Fi
 __global__ void convolutionRowGPU(user_data_t *d_Dst, user_data_t *d_Src, user_data_t *d_Filter,
                         int imageW, int imageH, int filterR) {
     int x,y,k;
+    int newDim = imageW+filterR*2;
     user_data_t sum=0.0;
 
-    x = threadIdx.x + blockDim.x * blockIdx.x;
-    y = threadIdx.y + blockDim.y * blockIdx.y;
+    x = threadIdx.x + blockDim.x * blockIdx.x + filterR;
+    y = threadIdx.y + blockDim.y * blockIdx.y + filterR;
 
     for (k = -filterR; k <= filterR; k++) {
       int d = x + k;
-
-      if (d >= 0 && d < imageW) {
-        sum += d_Src[y * imageW + d] * d_Filter[filterR - k];
-      }
-
-      d_Dst[y * imageW + x] = sum;
+      sum += d_Src[y * newDim + d] * d_Filter[filterR - k];
+      d_Dst[y * newDim + x] = sum;
     }
 }
 
@@ -74,19 +70,16 @@ void convolutionColumnCPU(user_data_t *h_Dst, user_data_t *h_Src, user_data_t *h
     			   int imageW, int imageH, int filterR) {
 
   int x, y, k;
+  int newDim = imageW+filterR*2;
 
-  for (y = 0; y < imageH; y++) {
-    for (x = 0; x < imageW; x++) {
+  for (y = filterR; y < imageH+filterR; y++) {
+    for (x = filterR; x < imageW+filterR; x++) {
       user_data_t sum = 0;
 
       for (k = -filterR; k <= filterR; k++) {
         int d = y + k;
-
-        if (d >= 0 && d < imageH) {
-          sum += h_Src[d * imageW + x] * h_Filter[filterR - k];
-        }
-
-        h_Dst[y * imageW + x] = sum;
+        sum += h_Src[d * newDim + x] * h_Filter[filterR - k];
+        h_Dst[y * newDim + x] = sum;
       }
     }
   }
@@ -95,19 +88,16 @@ void convolutionColumnCPU(user_data_t *h_Dst, user_data_t *h_Src, user_data_t *h
 __global__ void convolutionColumnGPU(user_data_t *d_Dst, user_data_t *d_Src, user_data_t *d_Filter,
                     int imageW, int imageH, int filterR) {
     int x, y, k;
+    int newDim = imageW+filterR*2;
     user_data_t sum = 0.0;
 
-    x = threadIdx.x + blockDim.x * blockIdx.x;
-    y = threadIdx.y + blockDim.y * blockIdx.y;
+    x = threadIdx.x + blockDim.x * blockIdx.x + filterR;
+    y = threadIdx.y + blockDim.y * blockIdx.y + filterR;
 
     for (k = -filterR; k <= filterR; k++) {
       int d = y + k;
-
-      if (d >= 0 && d < imageH) {
-        sum += d_Src[d * imageW + x] * d_Filter[filterR - k];
-      }
-
-      d_Dst[y * imageW + x] = sum;
+      sum += d_Src[d * newDim + x] * d_Filter[filterR - k];
+      d_Dst[y * newDim + x] = sum;
     }
 }
 
@@ -133,8 +123,9 @@ int main(int argc, char **argv) {
 
     int imageW;
     int imageH;
-    int num_blocks;
-    unsigned int i;
+    int padding, image_plus_paddingW;
+    int image_size;
+    unsigned int i,j;
     user_data_t residual;
 
     cudaError_t error; //check if a function fails!
@@ -146,11 +137,11 @@ int main(int argc, char **argv) {
     //elapsed time of GPU
     struct timespec  tv1, tv2;
 
-    debug_e("Entet number of blocks : ");
-    scanf("%d", &num_blocks);
-
 	printf("Enter filter radius : ");
 	scanf("%d", &filter_radius);
+
+    // padding size
+    padding = filter_radius;
 
     // Ta imageW, imageH ta dinei o xrhsths kai thewroume oti einai isa,
     // dhladh imageW = imageH = N, opou to N to dinei o xrhsths.
@@ -160,38 +151,64 @@ int main(int argc, char **argv) {
     scanf("%d", &imageW);
     imageH = imageW;
 
+    //image width with padding
+    image_plus_paddingW = imageW+2*padding;
+
+    // new image size
+    image_size = image_plus_paddingW*image_plus_paddingW;
+
     printf("Image Width x Height = %i x %i\n\n", imageW, imageH);
     printf("Allocating and initializing host arrays...\n");
     // Tha htan kalh idea na elegxete kai to apotelesma twn malloc...
     h_Filter    = (user_data_t *)malloc(FILTER_LENGTH * sizeof(user_data_t));
-    h_Input     = (user_data_t *)malloc(imageW * imageH * sizeof(user_data_t));
-    h_Buffer    = (user_data_t *)malloc(imageW * imageH * sizeof(user_data_t));
-    h_OutputCPU = (user_data_t *)malloc(imageW * imageH * sizeof(user_data_t));
-    GPU_result = (user_data_t *)malloc(imageW * imageH * sizeof(user_data_t));
+    h_Input     = (user_data_t *)malloc(image_size * sizeof(user_data_t));
+    h_Buffer    = (user_data_t *)malloc(image_size * sizeof(user_data_t));
+    h_OutputCPU = (user_data_t *)malloc(image_size * sizeof(user_data_t));
+    GPU_result = (user_data_t *)malloc(image_size * sizeof(user_data_t));
+
+    // initialize all buffers with zeros!!
+    memset(h_Input, 0.0, image_size * sizeof(user_data_t));
+    memset(h_Buffer, 0.0, image_size * sizeof(user_data_t));
+    memset(h_OutputCPU, 0.0, image_size * sizeof(user_data_t));
+    memset(GPU_result, 0.0, image_size * sizeof(user_data_t));
 
     error = cudaMalloc((void**) &d_Filter, FILTER_LENGTH*sizeof(user_data_t));
     if (error != cudaSuccess){
-        debug_e("cudaMalloc failed!");
+        debug_e("cudaMalloc failed! Error: %s\n", cudaGetErrorString(error));
         exit(-1);
     }
 
-    error = cudaMalloc((void**) &d_Input, imageW * imageH * sizeof(user_data_t));
+    error = cudaMalloc((void**) &d_Input, image_size * sizeof(user_data_t));
     if (error != cudaSuccess){
         debug_e("cudaMalloc failed! Error: %s\n", cudaGetErrorString(error));
         exit(-1);
     }
 
-    error = cudaMalloc((void**) &d_Buffer, imageW * imageH * sizeof(user_data_t));
+    error = cudaMalloc((void**) &d_Buffer, image_size * sizeof(user_data_t));
     if (error != cudaSuccess){
         debug_e("cudaMalloc failed! Error: %s\n", cudaGetErrorString(error));
         exit(-1);
     }
 
-    error = cudaMalloc((void**) &d_OutputGPU, imageW * imageH * sizeof(user_data_t));
+    error = cudaMalloc((void**) &d_OutputGPU, image_size * sizeof(user_data_t));
     if (error != cudaSuccess){
         debug_e("cudaMalloc failed! Error: %s\n", cudaGetErrorString(error));
         exit(-1);
     }
+
+    // initialize all buffers with zeros!!
+    error = cudaMemset(d_Buffer, 0.0, image_size*sizeof(user_data_t));
+    if (error != cudaSuccess){
+        debug_e("cudaMemset failed! Error: %s\n", cudaGetErrorString(error));
+        exit(-1);
+    }
+
+    error = cudaMemset(d_OutputGPU, 0.0, image_size*sizeof(user_data_t));
+    if (error != cudaSuccess){
+        debug_e("cudaMemset failed! Error: %s\n", cudaGetErrorString(error));
+        exit(-1);
+    }
+
     // to 'h_Filter' apotelei to filtro me to opoio ginetai to convolution kai
     // arxikopoieitai tuxaia. To 'h_Input' einai h eikona panw sthn opoia ginetai
     // to convolution kai arxikopoieitai kai auth tuxaia.
@@ -202,8 +219,10 @@ int main(int argc, char **argv) {
         h_Filter[i] = (user_data_t)(rand() % 16);
     }
 
-    for (i = 0; i < imageW * imageH; i++) {
-        h_Input[i] = (user_data_t)rand() / ((user_data_t)RAND_MAX / 255) + (user_data_t)rand() / (user_data_t)RAND_MAX;
+    for (i = padding; i < imageH+padding; i++) {
+        for (j = padding; j < imageW+padding; j++) {
+            h_Input[i*image_plus_paddingW+j] = (user_data_t)rand() / ((user_data_t)RAND_MAX / 255) + (user_data_t)rand() / (user_data_t)RAND_MAX;
+        }
     }
 
     /* ------------------------------------------- CPU computation -----------------------------------------------------------------*/
@@ -228,10 +247,10 @@ int main(int argc, char **argv) {
     printf("GPU computation: ");
     //Dimensions of grib and blocks!
     dim3 grid, block;
-    block.x = imageW/num_blocks;
-    block.y = imageH/num_blocks;
-    grid.x = num_blocks;
-    grid.y = num_blocks;
+    block.x = imageW/NUM_BLOCKS;
+    block.y = imageH/NUM_BLOCKS;
+    grid.x = NUM_BLOCKS;
+    grid.y = NUM_BLOCKS;
 
     myTimer.Start(); // start the timer
 
@@ -242,7 +261,7 @@ int main(int argc, char **argv) {
         exit(-1);
     }
 
-    error = cudaMemcpy(d_Input, h_Input, imageW * imageH * sizeof(user_data_t), cudaMemcpyHostToDevice);
+    error = cudaMemcpy(d_Input, h_Input, image_size * sizeof(user_data_t), cudaMemcpyHostToDevice);
     if (error != cudaSuccess){
         debug_e("cudaMalloc failed! Error: %s\n", cudaGetErrorString(error));
         exit(-1);
@@ -262,7 +281,7 @@ int main(int argc, char **argv) {
     convolutionColumnGPU<<<grid, block>>>(d_OutputGPU, d_Buffer, d_Filter, imageW, imageH, filter_radius); // convolution kata sthles
 
     //Done with computation, return result to CPU
-    error = cudaMemcpy(GPU_result, d_OutputGPU, imageW*imageH*sizeof(user_data_t), cudaMemcpyDeviceToHost);
+    error = cudaMemcpy(GPU_result, d_OutputGPU, image_size*sizeof(user_data_t), cudaMemcpyDeviceToHost);
     if (error != cudaSuccess) {
         debug_e("cudaMemcpy failed! Error: %s\n", cudaGetErrorString(error));
         exit(-1);
@@ -289,21 +308,25 @@ int main(int argc, char **argv) {
     // Kanete h sugrish anamesa se GPU kai CPU kai an estw kai kapoio apotelesma xeperna thn akriveia
     // pou exoume orisei, tote exoume sfalma kai mporoume endexomenws na termatisoume to programma mas
     #ifdef CHECK_ACCURACY
-        for (i=0; i<imageW*imageH; i++) {
-            residual = ABS(GPU_result[i] - h_OutputCPU[i]);
+        for (i=padding; i<imageH+padding; i++) {
+            for (j=padding; j<imageW+padding; j++) {
+                residual = ABS(GPU_result[i*image_plus_paddingW+j] - h_OutputCPU[i*image_plus_paddingW+j]);
 
-            if (residual>accuracy){
-                debug_w("Accuracy: %lf", residual);
-                exit(-1);
+                if (residual>accuracy){
+                    debug_e("Accuracy: %lf", residual);
+                    exit(-1);
+                }
             }
         }
     #else //find the max residual!
         user_data_t max_residual = -1.0;
-        for (i=0; i<imageW*imageH; i++) {
-            residual = ABS(GPU_result[i] - h_OutputCPU[i]);
+        for (i=padding; i<imageH+padding; i++) {
+            for (j=padding; j<imageW+padding; j++) {
+                residual = ABS(GPU_result[i*image_plus_paddingW+j] - h_OutputCPU[i*image_plus_paddingW+j]);
 
-            if (residual>max_residual){
-                max_residual = residual;
+                if (residual>max_residual){
+                    max_residual = residual;
+                }
             }
         }
         printf("Max residual: %lf\n", max_residual);
@@ -314,6 +337,7 @@ int main(int argc, char **argv) {
     free(h_Buffer);
     free(h_Input);
     free(h_Filter);
+    free(GPU_result);
 
     error = cudaFree(d_Filter);
     if (error != cudaSuccess){
@@ -340,7 +364,7 @@ int main(int argc, char **argv) {
     }
 
     // Do a device reset just in case... Bgalte to sxolio otan ylopoihsete CUDA
-    //cudaDeviceReset();
+    cudaDeviceReset();
 
     return 0;
 }
