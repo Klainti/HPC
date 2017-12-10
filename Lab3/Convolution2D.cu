@@ -16,8 +16,6 @@ unsigned int filter_radius;
 #define ABS(val)  	((val)<0.0 ? (-(val)) : (val))
 #define accuracy  	0.00005
 
-#define NUM_BLOCKS 1
-
 // use doubles or float ?
 #ifdef USE_DOUBLES
 typedef double user_data_t;
@@ -41,8 +39,8 @@ void convolutionRowCPU(user_data_t *h_Dst, user_data_t *h_Src, user_data_t *h_Fi
       for (k = -filterR; k <= filterR; k++) {
         int d = x + k;
         sum += h_Src[y * newDim + d] * h_Filter[filterR - k];
-        h_Dst[y * newDim + x] = sum;
       }
+      h_Dst[y * newDim + x] = sum;
     }
   }
 }
@@ -59,8 +57,8 @@ __global__ void convolutionRowGPU(user_data_t *d_Dst, user_data_t *d_Src, user_d
     for (k = -filterR; k <= filterR; k++) {
       int d = x + k;
       sum += d_Src[y * newDim + d] * d_Filter[filterR - k];
-      d_Dst[y * newDim + x] = sum;
     }
+    d_Dst[y * newDim + x] = sum;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -79,8 +77,8 @@ void convolutionColumnCPU(user_data_t *h_Dst, user_data_t *h_Src, user_data_t *h
       for (k = -filterR; k <= filterR; k++) {
         int d = y + k;
         sum += h_Src[d * newDim + x] * h_Filter[filterR - k];
-        h_Dst[y * newDim + x] = sum;
       }
+      h_Dst[y * newDim + x] = sum;
     }
   }
 }
@@ -97,8 +95,8 @@ __global__ void convolutionColumnGPU(user_data_t *d_Dst, user_data_t *d_Src, use
     for (k = -filterR; k <= filterR; k++) {
       int d = y + k;
       sum += d_Src[d * newDim + x] * d_Filter[filterR - k];
-      d_Dst[y * newDim + x] = sum;
     }
+    d_Dst[y * newDim + x] = sum;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -125,6 +123,7 @@ int main(int argc, char **argv) {
     int imageH;
     int padding, image_plus_paddingW;
     int image_size;
+    int a_break = 0;
     unsigned int i,j;
     user_data_t residual;
 
@@ -239,7 +238,7 @@ int main(int argc, char **argv) {
     /* This is the end of the main computation. */
     clock_gettime(CLOCK_MONOTONIC_RAW, &tv2);
 
-    printf ("%10g\n",(double) (tv2.tv_nsec - tv1.tv_nsec) / 1000000000.0 +
+    printf ("%10g (s)\n",(double) (tv2.tv_nsec - tv1.tv_nsec) / 1000000000.0 +
     			(double) (tv2.tv_sec - tv1.tv_sec));
 
 
@@ -247,10 +246,20 @@ int main(int argc, char **argv) {
     printf("GPU computation: ");
     //Dimensions of grib and blocks!
     dim3 grid, block;
-    block.x = imageW/NUM_BLOCKS;
-    block.y = imageH/NUM_BLOCKS;
-    grid.x = NUM_BLOCKS;
-    grid.y = NUM_BLOCKS;
+
+    // max num thread per block = 32!
+    // So, if imageW > 32, create max num threads per block!
+    if (imageW < 32) {
+        block.x = imageW;
+        block.y = imageH;
+        grid.x = 1;
+        grid.y = 1;
+    } else {
+        block.x = 32;
+        block.y = 32;
+        grid.x = imageW/32;
+        grid.y = imageH/32;
+    }
 
     myTimer.Start(); // start the timer
 
@@ -288,7 +297,7 @@ int main(int argc, char **argv) {
     }
 
     myTimer.Stop(); // stop the timer
-    printf("%lf\n", myTimer.Elapsed());
+    printf("%lf (ms)\n", myTimer.Elapsed());
     myTimer.DestroyTimer();
 
     // ask CUDA for the last error to occur (if one exists)
@@ -313,9 +322,13 @@ int main(int argc, char **argv) {
                 residual = ABS(GPU_result[i*image_plus_paddingW+j] - h_OutputCPU[i*image_plus_paddingW+j]);
 
                 if (residual>accuracy){
-                    debug_e("Accuracy: %lf", residual);
-                    exit(-1);
+                    printf("Accuracy problem! residual between CPU and GPU is: %lf\n", residual);
+                    a_break = 1;
+                    break;
                 }
+            }
+            if (a_break){
+                break; // go to free memory!
             }
         }
     #else //find the max residual!
