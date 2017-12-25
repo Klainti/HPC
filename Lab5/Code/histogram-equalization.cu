@@ -27,15 +27,15 @@ void histogram_equalization(unsigned char * img_out, unsigned char * img_in,
         min = hist_in[i++];
     }
     d = img_size - min;
+    printf("nbr_bin:%d\n", nbr_bin);
     for(i = 0; i < nbr_bin; i ++){
         cdf += hist_in[i];
+        //printf("%d: %d\n", i,cdf);
         //lut[i] = (cdf - min)*(nbr_bin - 1)/d;
         lut[i] = (int)(((float)cdf - min)*255/d + 0.5);
         if(lut[i] < 0){
             lut[i] = 0;
-        }
-        
-        
+        } 
     }
     
     /* Get the result image */
