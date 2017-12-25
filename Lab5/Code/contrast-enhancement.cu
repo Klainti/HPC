@@ -7,20 +7,32 @@
 
 #define CDF_SIZE 256
 
-__global__ void prescan(int *g_odata, int *g_idata, int n){
+#define NUM_BANKS 32
+#define LOG_NUM_BANKS 5 
+
+#define CONFLICT_FREE_OFFSET(n)\
+    ((n) >> NUM_BANKS + (n) >> (2 * LOG_NUM_BANKS)) 
+
+__constant__ int d_hist[CDF_SIZE];
+
+__global__ void prescan(int *g_odata, int n){
 
     __shared__ int temp[CDF_SIZE];
 
     int thid = threadIdx.x;
     int offset = 1;
     int inclusive_number1,inclusive_number2;
+    int ai = thid;
+    int bi = thid + (n/2);
+    int bankOffsetA = CONFLICT_FREE_OFFSET(ai);
+    int bankOffsetB = CONFLICT_FREE_OFFSET(ai);
     
     //load into shared mem
-    inclusive_number1 = g_idata[2*thid];
-    temp[2*thid] = inclusive_number1;
+    inclusive_number1 = d_hist[ai];
+    temp[ai + bankOffsetA] = inclusive_number1;
 
-    inclusive_number2 = g_idata[2*thid + 1];
-    temp[2*thid + 1] = inclusive_number2;
+    inclusive_number2 = d_hist[bi];
+    temp[bi + bankOffsetB] = inclusive_number2;
 
     for (int d = n >> 1; d > 0; d >>=1 ) {// build sum in place up the tree
 
@@ -28,15 +40,18 @@ __global__ void prescan(int *g_odata, int *g_idata, int n){
 
         if (thid < d) {
             int ai = offset*(2*thid+1) - 1;
+            ai += CONFLICT_FREE_OFFSET(ai);
+
             int bi = offset*(2*thid+2) - 1;
-            
+            bi += CONFLICT_FREE_OFFSET(bi);
+                
             temp[bi] += temp[ai];
         }
         offset *= 2;
     }
  
     if (thid == 0) {
-        temp[n-1] = 0;
+        temp[n-1 + CONFLICT_FREE_OFFSET(n-1)] = 0;
     }
 
     for (int d = 1; d < n; d *= 2){ // traverse down tree and build scan
@@ -45,8 +60,11 @@ __global__ void prescan(int *g_odata, int *g_idata, int n){
 
         if (thid < d) {
             int ai = offset*(2*thid+1) - 1;
-            int bi = offset*(2*thid+2) - 1;
+            ai += CONFLICT_FREE_OFFSET(ai);
 
+            int bi = offset*(2*thid+2) - 1;
+            bi += CONFLICT_FREE_OFFSET(bi);
+ 
             int t = temp[ai];
             temp[ai] = temp[bi];
             temp[bi] += t;
@@ -57,8 +75,8 @@ __global__ void prescan(int *g_odata, int *g_idata, int n){
     __syncthreads(); // wait for down-sweep phase to finish
 
     // write result to output and convert exclusive to inclusive!!
-    g_odata[2*thid] = temp[2*thid] + inclusive_number1;
-    g_odata[2*thid + 1] = temp[2*thid + 1] + inclusive_number2;
+    g_odata[ai] = temp[ai + bankOffsetA] + inclusive_number1;
+    g_odata[bi] = temp[bi + bankOffsetB] + inclusive_number2;
 }
 
 PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
@@ -68,7 +86,7 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
     int *h_cdf;
     
     // variables for device!
-    int *d_cdf, *d_hist;
+    int *d_cdf;
     cudaError_t error;
     
     //dimensions of kernel
@@ -100,13 +118,6 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
         exit(-1);
     }
 
-    // allocate mem for d_cdf
-    error = cudaMalloc((void **)&d_hist, CDF_SIZE*sizeof(int));
-    if (error != cudaSuccess){
-        printf("cudaMalloc failed: %s\n", cudaGetErrorString(error));
-        exit(-1);
-    }
-
     clock_gettime(CLOCK_MONOTONIC_RAW, &tv1);
 
     histogram(hist, img_in.img, img_in.h * img_in.w, 256);
@@ -125,16 +136,15 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
     			(double) (tv2.tv_sec - tv1.tv_sec));
 
 
-    // copy hist to device input
-    error = cudaMemcpy(d_hist, hist, CDF_SIZE * sizeof(int), cudaMemcpyHostToDevice);
+    error = cudaMemcpyToSymbol(d_hist, hist, 256 * sizeof(int));
     if (error != cudaSuccess) {
-      printf("cudaMemcpy failed: %s\n", cudaGetErrorString(error));
+      printf("cudaMemcpyToSymbol failed: %s\n", cudaGetErrorString(error));
       exit(-1);
     }
 
     myTimer.Start(); // start the timer
 
-    prescan <<< grid, block >>> (d_cdf,d_hist, 256);
+    prescan <<< grid, block >>> (d_cdf, 256);
 
     cudaDeviceSynchronize();
     myTimer.Stop();
@@ -153,12 +163,6 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
     }
     */
     free(h_cdf);
-
-    error = cudaFree(d_hist);
-    if (error != cudaSuccess) {
-        printf("cudaFree failed: %s\n", cudaGetErrorString(error));
-        exit(-1);
-    }
 
     error = cudaFree(d_cdf);
     if (error != cudaSuccess) {
