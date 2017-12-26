@@ -15,7 +15,7 @@
 
 __constant__ int d_hist[CDF_SIZE];
 
-__global__ void prescan(int *g_odata, int n){
+__global__ void prescan(int *lut, int n, int min, int diff){
 
     __shared__ int temp[CDF_SIZE];
 
@@ -75,18 +75,21 @@ __global__ void prescan(int *g_odata, int n){
     __syncthreads(); // wait for down-sweep phase to finish
 
     // write result to output and convert exclusive to inclusive!!
-    g_odata[ai] = temp[ai + bankOffsetA] + inclusive_number1;
-    g_odata[bi] = temp[bi + bankOffsetB] + inclusive_number2;
+    //lut[ai] = temp[ai + bankOffsetA] + inclusive_number1;
+    //lut[bi] = temp[bi + bankOffsetB] + inclusive_number2;
+    lut[ai] = (int)(((float)(temp[ai + bankOffsetA] + inclusive_number1) - min)*255/diff + 0.5);    
+    lut[bi] = (int)(((float)(temp[bi + bankOffsetB] + inclusive_number2) - min)*255/diff + 0.5);
 }
 
 PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
 {
     PGM_IMG result;
     int hist[256];
-    int *h_cdf;
+    int *h_lut;
+    int i=0, min=0;
     
     // variables for device!
-    int *d_cdf;
+    int *d_lut;
     cudaError_t error;
     
     //dimensions of kernel
@@ -105,14 +108,14 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
     result.h = img_in.h;
     result.img = (unsigned char *)malloc(result.w * result.h * sizeof(unsigned char));
         
-    h_cdf = (int*) malloc(CDF_SIZE*sizeof(int));
-    if (h_cdf == NULL){
+    h_lut = (int*) malloc(CDF_SIZE*sizeof(int));
+    if (h_lut == NULL){
         printf("Malloc failed");
         exit(-1);
     }
 
     // allocate mem for d_cdf
-    error = cudaMalloc((void **)&d_cdf, CDF_SIZE*sizeof(int));
+    error = cudaMalloc((void **)&d_lut, CDF_SIZE*sizeof(int));
     if (error != cudaSuccess){
         printf("cudaMalloc failed: %s\n", cudaGetErrorString(error));
         exit(-1);
@@ -126,7 +129,7 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
     printf ("histogram: %10g (s)\n",(double) (tv2.tv_nsec - tv1.tv_nsec) / 1000000000.0 +
     			(double) (tv2.tv_sec - tv1.tv_sec));
 
-
+    /*
     clock_gettime(CLOCK_MONOTONIC_RAW, &tv1);
 
     histogram_equalization(result.img,img_in.img,hist,result.w*result.h, 256);
@@ -134,7 +137,7 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
     clock_gettime(CLOCK_MONOTONIC_RAW, &tv2);
     printf ("histogram_equal: %10g (s)\n",(double) (tv2.tv_nsec - tv1.tv_nsec) / 1000000000.0 +
     			(double) (tv2.tv_sec - tv1.tv_sec));
-
+    */
 
     error = cudaMemcpyToSymbol(d_hist, hist, 256 * sizeof(int));
     if (error != cudaSuccess) {
@@ -142,9 +145,13 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
       exit(-1);
     }
 
+    while(min == 0){
+        min = hist[i++];
+    }
+ 
     myTimer.Start(); // start the timer
 
-    prescan <<< grid, block >>> (d_cdf, 256);
+    prescan <<< grid, block >>> (d_lut, 256, min,result.w*result.h-min);
 
     cudaDeviceSynchronize();
     myTimer.Stop();
@@ -152,19 +159,23 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
     myTimer.DestroyTimer();
 
     // copy device output to h_cdf
-    error = cudaMemcpy(h_cdf, d_cdf, CDF_SIZE * sizeof(int), cudaMemcpyDeviceToHost);
+    error = cudaMemcpy(h_lut, d_lut, CDF_SIZE * sizeof(int), cudaMemcpyDeviceToHost);
     if (error != cudaSuccess) {
       printf("cudaMemcpy failed: %s\n", cudaGetErrorString(error));
       exit(-1);
     }
-    /*
-    for (int i=0; i<CDF_SIZE; i++){
-        printf("%d: %d\n", i,h_cdf[i]);
-    }
-    */
-    free(h_cdf);
 
-    error = cudaFree(d_cdf);
+    clock_gettime(CLOCK_MONOTONIC_RAW, &tv1);
+
+    Myhistogram_equalization(result.img, img_in.img, h_lut, result.w*result.h);
+
+    clock_gettime(CLOCK_MONOTONIC_RAW, &tv2);
+    printf ("Myhistogram_equal: %10g (s)\n",(double) (tv2.tv_nsec - tv1.tv_nsec) / 1000000000.0 +
+    			(double) (tv2.tv_sec - tv1.tv_sec)); 
+   
+    free(h_lut);
+
+    error = cudaFree(d_lut);
     if (error != cudaSuccess) {
         printf("cudaFree failed: %s\n", cudaGetErrorString(error));
         exit(-1);

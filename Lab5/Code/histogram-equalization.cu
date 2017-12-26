@@ -30,9 +30,9 @@ void histogram_equalization(unsigned char * img_out, unsigned char * img_in,
     printf("nbr_bin:%d\n", nbr_bin);
     for(i = 0; i < nbr_bin; i ++){
         cdf += hist_in[i];
-        //printf("%d: %d\n", i,cdf);
         //lut[i] = (cdf - min)*(nbr_bin - 1)/d;
         lut[i] = (int)(((float)cdf - min)*255/d + 0.5);
+        printf("%d: %d\n", i,lut[i]);
         if(lut[i] < 0){
             lut[i] = 0;
         } 
@@ -47,5 +47,21 @@ void histogram_equalization(unsigned char * img_out, unsigned char * img_in,
             img_out[i] = (unsigned char)lut[img_in[i]];
         }
         
+    }
+}
+
+void Myhistogram_equalization(unsigned char * img_out, unsigned char * img_in, 
+                            int * lut, int img_size){
+    int i;
+    /* Get the result image */
+    for(i = 0; i < img_size; i ++){
+        if(lut[img_in[i]] > 255){
+            img_out[i] = 255;
+        }else if (lut[img_in[i]] < 0){
+            img_out[i] = 0;
+        }
+        else{
+            img_out[i] = (unsigned char)lut[img_in[i]];
+        }
     }
 }
