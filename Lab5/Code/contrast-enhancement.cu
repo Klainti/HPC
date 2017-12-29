@@ -74,11 +74,25 @@ __global__ void prescan(int *lut, int n, int min, int diff){
 
     __syncthreads(); // wait for down-sweep phase to finish
 
-    // write result to output and convert exclusive to inclusive!!
-    //lut[ai] = temp[ai + bankOffsetA] + inclusive_number1;
-    //lut[bi] = temp[bi + bankOffsetB] + inclusive_number2;
-    lut[ai] = (int)(((float)(temp[ai + bankOffsetA] + inclusive_number1) - min)*255/diff + 0.5);    
-    lut[bi] = (int)(((float)(temp[bi + bankOffsetB] + inclusive_number2) - min)*255/diff + 0.5);
+    int res_ai = (int)(((float)(temp[ai + bankOffsetA] + inclusive_number1) - min)*255/diff + 0.5);    
+    int res_bi = (int)(((float)(temp[bi + bankOffsetB] + inclusive_number2) - min)*255/diff + 0.5);
+
+    if (res_ai < 0){
+        res_ai = 0;
+    } 
+    else if (res_ai > 255){
+        res_ai = 255;
+    } 
+
+    if (res_bi < 0){
+        res_bi = 0;
+    } 
+    else if (res_bi > 255){
+        res_bi = 255;
+    }
+
+    lut[ai] = res_ai;
+    lut[bi] = res_bi;
 }
 
 PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
@@ -114,36 +128,43 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
         exit(-1);
     }
 
+    myTimer.Start(); // start the timer
     // allocate mem for d_cdf
     error = cudaMalloc((void **)&d_lut, CDF_SIZE*sizeof(int));
     if (error != cudaSuccess){
         printf("cudaMalloc failed: %s\n", cudaGetErrorString(error));
         exit(-1);
     }
+    myTimer.Stop();
+    printf("dlut cudaMalloc: %lf (s)\n", myTimer.Elapsed()/1000);
 
     clock_gettime(CLOCK_MONOTONIC_RAW, &tv1);
 
     histogram(hist, img_in.img, img_in.h * img_in.w, 256);
 
+    /*
     clock_gettime(CLOCK_MONOTONIC_RAW, &tv2);
     printf ("histogram: %10g (s)\n",(double) (tv2.tv_nsec - tv1.tv_nsec) / 1000000000.0 +
     			(double) (tv2.tv_sec - tv1.tv_sec));
 
-    /*
+    
     clock_gettime(CLOCK_MONOTONIC_RAW, &tv1);
-
+    */
     histogram_equalization(result.img,img_in.img,hist,result.w*result.h, 256);
 
     clock_gettime(CLOCK_MONOTONIC_RAW, &tv2);
-    printf ("histogram_equal: %10g (s)\n",(double) (tv2.tv_nsec - tv1.tv_nsec) / 1000000000.0 +
+    printf ("CPU histogram and equal: %10g (s)\n",(double) (tv2.tv_nsec - tv1.tv_nsec) / 1000000000.0 +
     			(double) (tv2.tv_sec - tv1.tv_sec));
-    */
+    
 
+    myTimer.Start(); // start the timer
     error = cudaMemcpyToSymbol(d_hist, hist, 256 * sizeof(int));
     if (error != cudaSuccess) {
       printf("cudaMemcpyToSymbol failed: %s\n", cudaGetErrorString(error));
       exit(-1);
     }
+    myTimer.Stop();
+    printf("cudaToSymbol: %lf (s)\n", myTimer.Elapsed()/1000);
 
     while(min == 0){
         min = hist[i++];
@@ -156,14 +177,17 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
     cudaDeviceSynchronize();
     myTimer.Stop();
     printf("cuda prefix: %lf (s)\n", myTimer.Elapsed()/1000);
-    myTimer.DestroyTimer();
 
-    // copy device output to h_cdf
+    myTimer.Start(); // start the timer
+    // copy device output to h_lut
     error = cudaMemcpy(h_lut, d_lut, CDF_SIZE * sizeof(int), cudaMemcpyDeviceToHost);
     if (error != cudaSuccess) {
       printf("cudaMemcpy failed: %s\n", cudaGetErrorString(error));
       exit(-1);
     }
+    myTimer.Stop();
+    printf("MEMcopy: %lf (s)\n", myTimer.Elapsed()/1000);
+    myTimer.DestroyTimer();
 
     clock_gettime(CLOCK_MONOTONIC_RAW, &tv1);
 
@@ -180,6 +204,7 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
         printf("cudaFree failed: %s\n", cudaGetErrorString(error));
         exit(-1);
     }
- 
+    
+    cudaDeviceReset();
     return result;
 }
