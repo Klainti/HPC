@@ -49,29 +49,3 @@ void histogram_equalization(unsigned char * img_out, unsigned char * img_in,
         
     }
 }
-
-void Myhistogram_equalization(unsigned char * img_out, unsigned char * img_in, 
-                            int * lut, int img_size){
-    int i;
-    for (i=0; i< img_size; i++){
-        img_out[i] = (unsigned char)lut[img_in[i]];
-    }
-    /* Get the result image
-       for(i = 0; i < img_size; i ++){
-        if(lut[img_in[i]] > 255){
-            img_out[i] = 255;
-        }else if (lut[img_in[i]] < 0){
-            img_out[i] = 0;
-        }
-        else{
-            img_out[i] = (unsigned char)lut[img_in[i]];
-        }
-    }
-    */
-}
-
-
-__global__ void hist_equalGPU(unsigned char * img_in, int img_size){
-
-    thid = threadIdx.x + blockId
-}

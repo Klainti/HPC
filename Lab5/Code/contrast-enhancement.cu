@@ -14,6 +14,7 @@
     ((n) >> NUM_BANKS + (n) >> (2 * LOG_NUM_BANKS)) 
 
 __constant__ int d_hist[CDF_SIZE];
+__constant__ int lut_const[CDF_SIZE];
 
 __global__ void prescan(int *lut, int n, int min, int diff){
 
@@ -95,21 +96,29 @@ __global__ void prescan(int *lut, int n, int min, int diff){
     lut[bi] = res_bi;
 }
 
+__global__ void hist_equalGPU(unsigned char * img_out, int img_size){
+
+    int thid = threadIdx.x + blockDim.x*blockIdx.x;
+
+    if (thid < img_size){
+        img_out[thid] =  (unsigned char)lut_const[img_out[thid]];
+    }
+}
+
 PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
 {
     PGM_IMG result;
     int hist[256];
     int *h_lut;
-    int i=0, min=0;
+    int i=0, min=0, img_size;
     
     // variables for device!
     int *d_lut;
+    unsigned char *d_result;
     cudaError_t error;
     
     //dimensions of kernel
     dim3 grid, block;
-    block.x = 128; //half of CDF_SIZE!
-    grid.x = 1;
 
     //elapsed time of GPU
     GpuTimer myTimer;
@@ -118,18 +127,24 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
     //elapsed time of GPU
     struct timespec  tv1, tv2;
 
+    // CPU MALLOC
     result.w = img_in.w;
     result.h = img_in.h;
-    result.img = (unsigned char *)malloc(result.w * result.h * sizeof(unsigned char));
-        
+    img_size = result.w * result.h;
+
+    ////////////////////////// MEM ALLOCATION /////////////////////////////
+    
+    result.img = (unsigned char *)malloc(img_size * sizeof(unsigned char));    
+
     h_lut = (int*) malloc(CDF_SIZE*sizeof(int));
     if (h_lut == NULL){
         printf("Malloc failed");
         exit(-1);
     }
 
-    myTimer.Start(); // start the timer
-    // allocate mem for d_cdf
+
+    // allocate mem for d_lut    
+    myTimer.Start();
     error = cudaMalloc((void **)&d_lut, CDF_SIZE*sizeof(int));
     if (error != cudaSuccess){
         printf("cudaMalloc failed: %s\n", cudaGetErrorString(error));
@@ -138,68 +153,99 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
     myTimer.Stop();
     printf("dlut cudaMalloc: %lf (s)\n", myTimer.Elapsed()/1000);
 
+
+    // allocate mem for d_result
+    myTimer.Start();
+    error = cudaMalloc((void **)&d_result, img_size * sizeof(unsigned char));
+    if (error != cudaSuccess){
+        printf("cudaMalloc failed: %s\n", cudaGetErrorString(error));
+        exit(-1);
+    }
+    myTimer.Stop();
+    printf("d_result cudaMalloc: %lf (s)\n", myTimer.Elapsed()/1000);
+
+    ////////////////////////// CALC OF HIST /////////////////////////////
+
     clock_gettime(CLOCK_MONOTONIC_RAW, &tv1);
 
     histogram(hist, img_in.img, img_in.h * img_in.w, 256);
 
-    /*
     clock_gettime(CLOCK_MONOTONIC_RAW, &tv2);
     printf ("histogram: %10g (s)\n",(double) (tv2.tv_nsec - tv1.tv_nsec) / 1000000000.0 +
     			(double) (tv2.tv_sec - tv1.tv_sec));
-
-    
-    clock_gettime(CLOCK_MONOTONIC_RAW, &tv1);
-    */
-    histogram_equalization(result.img,img_in.img,hist,result.w*result.h, 256);
-
-    clock_gettime(CLOCK_MONOTONIC_RAW, &tv2);
-    printf ("CPU histogram and equal: %10g (s)\n",(double) (tv2.tv_nsec - tv1.tv_nsec) / 1000000000.0 +
-    			(double) (tv2.tv_sec - tv1.tv_sec));
-    
+       
+    ////////////////////// CALC OF LUT ////////////////////////////////////////
 
     myTimer.Start(); // start the timer
+
+    //copy hist to constant mem
     error = cudaMemcpyToSymbol(d_hist, hist, 256 * sizeof(int));
     if (error != cudaSuccess) {
       printf("cudaMemcpyToSymbol failed: %s\n", cudaGetErrorString(error));
       exit(-1);
     }
-    myTimer.Stop();
-    printf("cudaToSymbol: %lf (s)\n", myTimer.Elapsed()/1000);
 
     while(min == 0){
         min = hist[i++];
     }
  
-    myTimer.Start(); // start the timer
+    block.x = CDF_SIZE/2;  
+    grid.x = 1;
 
+    // kernel invocation!
     prescan <<< grid, block >>> (d_lut, 256, min,result.w*result.h-min);
 
     cudaDeviceSynchronize();
     myTimer.Stop();
     printf("cuda prefix: %lf (s)\n", myTimer.Elapsed()/1000);
 
-    myTimer.Start(); // start the timer
-    // copy device output to h_lut
-    error = cudaMemcpy(h_lut, d_lut, CDF_SIZE * sizeof(int), cudaMemcpyDeviceToHost);
+    /////////////////// APPLY HIST EQUALIZATION ////////////////////
+
+    myTimer.Start();
+
+    // Apply hist-equalization on image (kernel)
+    block.x = 1024; //half of CDF_SIZE!
+    grid.x = int(img_size/1024 + 1);
+
+    // copy lut to constant mem of the GPU
+    error = cudaMemcpyToSymbol(lut_const, d_lut, 256 * sizeof(int));
+    if (error != cudaSuccess) {
+        printf("cudaMemcpyToSymbol failed: %s\n", cudaGetErrorString(error));
+        exit(-1);
+    }
+
+    // copy img_in to d_result to apply hist-equalization
+    error = cudaMemcpy(d_result, img_in.img, img_size * sizeof(unsigned char), cudaMemcpyHostToDevice);
+    if (error != cudaSuccess) {
+      printf("cudaMemcpyToSymbol failed: %s\n", cudaGetErrorString(error));
+      exit(-1);
+    }
+
+    // kernel invocation!
+    hist_equalGPU <<< grid, block >>> (d_result, img_size);
+
+    // copy results from kernel to result!
+    error = cudaMemcpy(result.img, d_result, img_size * sizeof(unsigned char), cudaMemcpyDeviceToHost);
     if (error != cudaSuccess) {
       printf("cudaMemcpy failed: %s\n", cudaGetErrorString(error));
       exit(-1);
     }
+
     myTimer.Stop();
-    printf("MEMcopy: %lf (s)\n", myTimer.Elapsed()/1000);
+    printf("hist-equal kernel: %lf (s)\n", myTimer.Elapsed()/1000);
     myTimer.DestroyTimer();
-
-    clock_gettime(CLOCK_MONOTONIC_RAW, &tv1);
-
-    Myhistogram_equalization(result.img, img_in.img, h_lut, result.w*result.h);
-
-    clock_gettime(CLOCK_MONOTONIC_RAW, &tv2);
-    printf ("Myhistogram_equal: %10g (s)\n",(double) (tv2.tv_nsec - tv1.tv_nsec) / 1000000000.0 +
-    			(double) (tv2.tv_sec - tv1.tv_sec)); 
-   
+    // DONE!
+    
+    // free memory
     free(h_lut);
-
+    
     error = cudaFree(d_lut);
+    if (error != cudaSuccess) {
+        printf("cudaFree failed: %s\n", cudaGetErrorString(error));
+        exit(-1);
+    }
+
+    error = cudaFree(d_result);
     if (error != cudaSuccess) {
         printf("cudaFree failed: %s\n", cudaGetErrorString(error));
         exit(-1);
