@@ -49,6 +49,22 @@ void convolutionRowCPU(user_data_t *h_Dst, user_data_t *h_Src, user_data_t *h_Fi
   }
 }
 
+__global__ void convolutionRowGPU(user_data_t *d_Dst, user_data_t *d_Src, user_data_t *d_Filter,
+                        int imageW, int imageH, int filterR) {
+    int x,y,k;
+    int newDim = imageW+filterR*2;
+    user_data_t sum=0.0;
+
+    x = threadIdx.x + blockDim.x * blockIdx.x + filterR;
+    y = threadIdx.y + blockDim.y * blockIdx.y + filterR;
+
+    for (k = -filterR; k <= filterR; k++) {
+      int d = x + k;
+      sum += d_Src[y * newDim + d] * d_Filter[filterR - k];
+    }
+    d_Dst[y * newDim + x] = sum;
+}
+
 __global__ void convolutionRowGPUTiled(user_data_t *d_Dst, user_data_t *d_Src,
                         int imageW, int imageH, int filterR) {
 
@@ -109,6 +125,22 @@ void convolutionColumnCPU(user_data_t *h_Dst, user_data_t *h_Src, user_data_t *h
       h_Dst[y * newDim + x] = sum;
     }
   }
+}
+
+__global__ void convolutionColumnGPU(user_data_t *d_Dst, user_data_t *d_Src, user_data_t *d_Filter,
+                    int imageW, int imageH, int filterR) {
+    int x, y, k;
+    int newDim = imageW+filterR*2;
+    user_data_t sum = 0.0;
+
+    x = threadIdx.x + blockDim.x * blockIdx.x + filterR;
+    y = threadIdx.y + blockDim.y * blockIdx.y + filterR;
+
+    for (k = -filterR; k <= filterR; k++) {
+      int d = y + k;
+      sum += d_Src[d * newDim + x] * d_Filter[filterR - k];
+    }
+    d_Dst[y * newDim + x] = sum;
 }
 
 __global__ void convolutionColumnGPUTiled(user_data_t *d_Dst, user_data_t *d_Src,

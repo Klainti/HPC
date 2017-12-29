@@ -111,7 +111,8 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
     int hist[256];
     int *h_lut;
     int i=0, min=0, img_size;
-    
+    double total_time;
+
     // variables for device!
     int *d_lut;
     unsigned char *d_result;
@@ -171,8 +172,8 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
     histogram(hist, img_in.img, img_in.h * img_in.w, 256);
 
     clock_gettime(CLOCK_MONOTONIC_RAW, &tv2);
-    printf ("histogram: %10g (s)\n",(double) (tv2.tv_nsec - tv1.tv_nsec) / 1000000000.0 +
-    			(double) (tv2.tv_sec - tv1.tv_sec));
+    total_time = (double) (tv2.tv_nsec - tv1.tv_nsec) / 1000000000.0 +
+    			(double) (tv2.tv_sec - tv1.tv_sec);
        
     ////////////////////// CALC OF LUT ////////////////////////////////////////
 
@@ -197,7 +198,7 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
 
     cudaDeviceSynchronize();
     myTimer.Stop();
-    printf("cuda prefix: %lf (s)\n", myTimer.Elapsed()/1000);
+    total_time += (double) (myTimer.Elapsed()/1000);
 
     /////////////////// APPLY HIST EQUALIZATION ////////////////////
 
@@ -232,9 +233,11 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
     }
 
     myTimer.Stop();
-    printf("hist-equal kernel: %lf (s)\n", myTimer.Elapsed()/1000);
+    total_time += (double) (myTimer.Elapsed()/1000);
     myTimer.DestroyTimer();
     // DONE!
+
+    printf("total time: %lf\n", total_time);
     
     // free memory
     free(h_lut);
