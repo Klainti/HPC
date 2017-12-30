@@ -111,7 +111,7 @@ __global__ void hist_equalGPU(unsigned char * img_out, int img_size){
 PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
 {
     PGM_IMG result;
-    int hist[256];
+    int *hist;
     int *h_lut;
     int i=0, min=0, img_size;
     double total_time;
@@ -142,6 +142,13 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
     
     // need pinned memory for stream!
     error = cudaMallocHost((void **)&result.img, img_size*sizeof(unsigned char));
+    if (error != cudaSuccess){
+        printf("cudaMallocHost failed: %s\n", cudaGetErrorString(error));
+        exit(-1);
+    }
+
+    // need pinned memory for stream!
+    error = cudaMallocHost((void **)&hist, CDF_SIZE*sizeof(int));
     if (error != cudaSuccess){
         printf("cudaMallocHost failed: %s\n", cudaGetErrorString(error));
         exit(-1);
@@ -186,7 +193,7 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
     myTimer.Start(); // start the timer
 
     //copy hist to constant mem
-    error = cudaMemcpyToSymbol(d_hist, hist, 256 * sizeof(int));
+    error = cudaMemcpyToSymbolAsync(d_hist, hist, 256 * sizeof(int), 0, cudaMemcpyHostToDevice,stream1);
     if (error != cudaSuccess) {
       printf("cudaMemcpyToSymbol failed: %s\n", cudaGetErrorString(error));
       exit(-1);
@@ -196,7 +203,7 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
     grid.x = 1;
 
     // kernel invocation!
-    prescan <<< grid, block >>> (d_lut, 256, min,result.w*result.h-min);
+    prescan <<< grid, block, 0, stream1 >>> (d_lut, 256, min,result.w*result.h-min);
 
     /////////////////// APPLY HIST EQUALIZATION ////////////////////
 
@@ -205,7 +212,7 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
     grid.x = int(img_size/1024 + 1);
 
     // copy lut to constant mem of the GPU
-    error = cudaMemcpyToSymbol(lut_const, d_lut, 256 * sizeof(int));
+    error = cudaMemcpyToSymbolAsync(lut_const, d_lut, 256 * sizeof(int),0 , cudaMemcpyDeviceToDevice, stream1);
     if (error != cudaSuccess) {
         printf("cudaMemcpyToSymbol failed: %s\n", cudaGetErrorString(error));
         exit(-1);
@@ -228,7 +235,6 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
       exit(-1);
     }
 
-    cudaDeviceSynchronize();
     cudaStreamDestroy(stream1);
     myTimer.Stop();
     total_time += (double) (myTimer.Elapsed()/1000);
@@ -239,7 +245,13 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
     
     // free memory
     free(h_lut);
-       
+
+    error = cudaFreeHost(hist);
+    if (error != cudaSuccess) {
+        printf("cudaFree failed: %s\n", cudaGetErrorString(error));
+        exit(-1);
+    }
+
     error = cudaFree(d_lut);
     if (error != cudaSuccess) {
         printf("cudaFree failed: %s\n", cudaGetErrorString(error));
