@@ -7,17 +7,31 @@ void run_cpu_gray_test(PGM_IMG img_in, char *out_filename);
 
 int main(int argc, char *argv[]){
     PGM_IMG img_ibuf_g;
+    cudaError_t error;
 
 	if (argc != 3) {
 		printf("Run with input file name and output file name as arguments\n");
 		exit(1);
 	}
 	
-    printf("Running contrast enhancement for gray-scale images.\n");
+    //printf("Running contrast enhancement for gray-scale images.\n");
     img_ibuf_g = read_pgm(argv[1]);
     run_cpu_gray_test(img_ibuf_g, argv[2]);
     free_pgm(img_ibuf_g);
 
+    error = cudaGetLastError();
+    if(error != cudaSuccess)
+    {
+      // something's gone wrong
+      // print out the CUDA error as a string
+      printf("CUDA Error: %s\n", cudaGetErrorString(error));
+
+      // we can't recover from the error -- exit the program
+      exit(-1);
+    }
+ 
+    // before terminating, do reset!
+    cudaDeviceReset();
 	return 0;
 }
 
@@ -25,11 +39,9 @@ int main(int argc, char *argv[]){
 
 void run_cpu_gray_test(PGM_IMG img_in, char *out_filename)
 {
-    unsigned int timer = 0;
     PGM_IMG img_obuf;
     
-    
-    printf("Starting CPU processing...\n");
+    //printf("Starting CPU processing...\n");
     img_obuf = contrast_enhancement_g(img_in);
     write_pgm(img_obuf, out_filename);
     free_pgm(img_obuf);
@@ -39,6 +51,7 @@ void run_cpu_gray_test(PGM_IMG img_in, char *out_filename)
 PGM_IMG read_pgm(const char * path){
     FILE * in_file;
     char sbuf[256];
+    cudaError_t error;
     
     
     PGM_IMG result;
@@ -53,12 +66,14 @@ PGM_IMG read_pgm(const char * path){
     fscanf(in_file, "%d",&result.w);
     fscanf(in_file, "%d",&result.h);
     fscanf(in_file, "%d\n",&v_max);
-    printf("Image size: %d x %d\n", result.w, result.h);
+    //printf("Image size: %d x %d\n", result.w, result.h);
     
+    error = cudaMallocHost((void **)&result.img,result.w * result.h * sizeof(unsigned char));
+    if (error != cudaSuccess) {
+        printf("cudaMallocHost failed: %s\n", cudaGetErrorString(error));
+        exit(-1);
+    }
 
-    result.img = (unsigned char *)malloc(result.w * result.h * sizeof(unsigned char));
-
-        
     fread(result.img,sizeof(unsigned char), result.w*result.h, in_file);    
     fclose(in_file);
     
@@ -76,6 +91,11 @@ void write_pgm(PGM_IMG img, const char * path){
 
 void free_pgm(PGM_IMG img)
 {
-    free(img.img);
+    cudaError_t error;
+    error = cudaFreeHost(img.img);
+    if (error != cudaSuccess) {
+        printf("cudaMallocHost failed: %s\n", cudaGetErrorString(error));
+        exit(-1);
+    }
 }
 

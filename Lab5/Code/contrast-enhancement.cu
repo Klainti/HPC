@@ -51,7 +51,7 @@ __global__ void prescan(int *lut, int n, int min, int diff){
         offset *= 2;
     }
  
-    if (thid == 0) {
+    if (thid == 0) { // clear the last element
         temp[n-1 + CONFLICT_FREE_OFFSET(n-1)] = 0;
     }
 
@@ -75,9 +75,11 @@ __global__ void prescan(int *lut, int n, int min, int diff){
 
     __syncthreads(); // wait for down-sweep phase to finish
 
+    // make exclusive to inclusive and calc the lut table
     int res_ai = (int)(((float)(temp[ai + bankOffsetA] + inclusive_number1) - min)*255/diff + 0.5);    
     int res_bi = (int)(((float)(temp[bi + bankOffsetB] + inclusive_number2) - min)*255/diff + 0.5);
 
+    // results between [0...255]
     if (res_ai < 0){
         res_ai = 0;
     } 
@@ -96,6 +98,7 @@ __global__ void prescan(int *lut, int n, int min, int diff){
     lut[bi] = res_bi;
 }
 
+// apply histogram equalization from GPU
 __global__ void hist_equalGPU(unsigned char * img_out, int img_size){
 
     int thid = threadIdx.x + blockDim.x*blockIdx.x;
@@ -117,7 +120,9 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
     int *d_lut;
     unsigned char *d_result;
     cudaError_t error;
-    
+    cudaStream_t stream1;
+    cudaStreamCreate(&stream1);
+
     //dimensions of kernel
     dim3 grid, block;
 
@@ -125,7 +130,7 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
     GpuTimer myTimer;
     myTimer.CreateTimer();
 
-    //elapsed time of GPU
+    //elapsed time of CPU
     struct timespec  tv1, tv2;
 
     // CPU MALLOC
@@ -135,7 +140,12 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
 
     ////////////////////////// MEM ALLOCATION /////////////////////////////
     
-    result.img = (unsigned char *)malloc(img_size * sizeof(unsigned char));    
+    // need pinned memory for stream!
+    error = cudaMallocHost((void **)&result.img, img_size*sizeof(unsigned char));
+    if (error != cudaSuccess){
+        printf("cudaMallocHost failed: %s\n", cudaGetErrorString(error));
+        exit(-1);
+    }
 
     h_lut = (int*) malloc(CDF_SIZE*sizeof(int));
     if (h_lut == NULL){
@@ -143,27 +153,19 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
         exit(-1);
     }
 
-
     // allocate mem for d_lut    
-    myTimer.Start();
     error = cudaMalloc((void **)&d_lut, CDF_SIZE*sizeof(int));
     if (error != cudaSuccess){
         printf("cudaMalloc failed: %s\n", cudaGetErrorString(error));
         exit(-1);
     }
-    myTimer.Stop();
-    printf("dlut cudaMalloc: %lf (s)\n", myTimer.Elapsed()/1000);
-
 
     // allocate mem for d_result
-    myTimer.Start();
     error = cudaMalloc((void **)&d_result, img_size * sizeof(unsigned char));
     if (error != cudaSuccess){
         printf("cudaMalloc failed: %s\n", cudaGetErrorString(error));
         exit(-1);
     }
-    myTimer.Stop();
-    printf("d_result cudaMalloc: %lf (s)\n", myTimer.Elapsed()/1000);
 
     ////////////////////////// CALC OF HIST /////////////////////////////
 
@@ -171,6 +173,10 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
 
     histogram(hist, img_in.img, img_in.h * img_in.w, 256);
 
+    while(min == 0){
+        min = hist[i++];
+    }
+ 
     clock_gettime(CLOCK_MONOTONIC_RAW, &tv2);
     total_time = (double) (tv2.tv_nsec - tv1.tv_nsec) / 1000000000.0 +
     			(double) (tv2.tv_sec - tv1.tv_sec);
@@ -186,26 +192,16 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
       exit(-1);
     }
 
-    while(min == 0){
-        min = hist[i++];
-    }
- 
     block.x = CDF_SIZE/2;  
     grid.x = 1;
 
     // kernel invocation!
     prescan <<< grid, block >>> (d_lut, 256, min,result.w*result.h-min);
 
-    cudaDeviceSynchronize();
-    myTimer.Stop();
-    total_time += (double) (myTimer.Elapsed()/1000);
-
     /////////////////// APPLY HIST EQUALIZATION ////////////////////
 
-    myTimer.Start();
-
     // Apply hist-equalization on image (kernel)
-    block.x = 1024; //half of CDF_SIZE!
+    block.x = 1024; //use max threads per block
     grid.x = int(img_size/1024 + 1);
 
     // copy lut to constant mem of the GPU
@@ -216,32 +212,34 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
     }
 
     // copy img_in to d_result to apply hist-equalization
-    error = cudaMemcpy(d_result, img_in.img, img_size * sizeof(unsigned char), cudaMemcpyHostToDevice);
+    error = cudaMemcpyAsync(d_result, img_in.img, img_size * sizeof(unsigned char), cudaMemcpyHostToDevice, stream1);
     if (error != cudaSuccess) {
       printf("cudaMemcpyToSymbol failed: %s\n", cudaGetErrorString(error));
       exit(-1);
     }
 
     // kernel invocation!
-    hist_equalGPU <<< grid, block >>> (d_result, img_size);
+    hist_equalGPU <<< grid, block, 0, stream1 >>> (d_result, img_size);
 
     // copy results from kernel to result!
-    error = cudaMemcpy(result.img, d_result, img_size * sizeof(unsigned char), cudaMemcpyDeviceToHost);
+    error = cudaMemcpyAsync(result.img, d_result, img_size * sizeof(unsigned char), cudaMemcpyDeviceToHost, stream1);
     if (error != cudaSuccess) {
       printf("cudaMemcpy failed: %s\n", cudaGetErrorString(error));
       exit(-1);
     }
 
+    cudaDeviceSynchronize();
+    cudaStreamDestroy(stream1);
     myTimer.Stop();
     total_time += (double) (myTimer.Elapsed()/1000);
     myTimer.DestroyTimer();
     // DONE!
 
-    printf("total time: %lf\n", total_time);
+    printf("%lf\n", total_time);
     
     // free memory
     free(h_lut);
-    
+       
     error = cudaFree(d_lut);
     if (error != cudaSuccess) {
         printf("cudaFree failed: %s\n", cudaGetErrorString(error));
@@ -254,6 +252,5 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
         exit(-1);
     }
     
-    cudaDeviceReset();
     return result;
 }
