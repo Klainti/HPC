@@ -14,7 +14,7 @@ int main(int argc, char *argv[]){
 		exit(1);
 	}
 	
-    //printf("Running contrast enhancement for gray-scale images.\n");
+    printf("Running contrast enhancement for gray-scale images.\n");
     img_ibuf_g = read_pgm(argv[1]);
     run_cpu_gray_test(img_ibuf_g, argv[2]);
     free_pgm(img_ibuf_g);
@@ -41,7 +41,7 @@ void run_cpu_gray_test(PGM_IMG img_in, char *out_filename)
 {
     PGM_IMG img_obuf;
     
-    //printf("Starting CPU processing...\n");
+    printf("Starting CPU processing...\n");
     img_obuf = contrast_enhancement_g(img_in);
     write_pgm(img_obuf, out_filename);
     free_pgm(img_obuf);
@@ -66,7 +66,7 @@ PGM_IMG read_pgm(const char * path){
     fscanf(in_file, "%d",&result.w);
     fscanf(in_file, "%d",&result.h);
     fscanf(in_file, "%d\n",&v_max);
-    //printf("Image size: %d x %d\n", result.w, result.h);
+    printf("Image size: %d x %d\n", result.w, result.h);
     
     error = cudaMallocHost((void **)&result.img,result.w * result.h * sizeof(unsigned char));
     if (error != cudaSuccess) {

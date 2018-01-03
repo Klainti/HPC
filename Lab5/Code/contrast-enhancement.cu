@@ -112,7 +112,6 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
 {
     PGM_IMG result;
     int *hist;
-    int *h_lut;
     int i=0, min=0, img_size;
     double total_time;
 
@@ -151,12 +150,6 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
     error = cudaMallocHost((void **)&hist, CDF_SIZE*sizeof(int));
     if (error != cudaSuccess){
         printf("cudaMallocHost failed: %s\n", cudaGetErrorString(error));
-        exit(-1);
-    }
-
-    h_lut = (int*) malloc(CDF_SIZE*sizeof(int));
-    if (h_lut == NULL){
-        printf("Malloc failed");
         exit(-1);
     }
 
@@ -241,11 +234,8 @@ PGM_IMG contrast_enhancement_g(PGM_IMG img_in)
     myTimer.DestroyTimer();
     // DONE!
 
-    printf("%lf\n", total_time);
+    printf("Total time: %lf sec\n", total_time);
     
-    // free memory
-    free(h_lut);
-
     error = cudaFreeHost(hist);
     if (error != cudaSuccess) {
         printf("cudaFree failed: %s\n", cudaGetErrorString(error));
